@@ -1,0 +1,116 @@
+program srtToUTF16;
+
+{$mode Delphi}{$H+}
+
+uses
+  {$IFDEF UNIX}{$IFDEF UseCThreads}
+  cthreads,
+  {$ENDIF}{$ENDIF}
+  Classes,
+  sysutils,
+  FileUtil;
+
+const
+  _BackupExt   = '.bak';
+  _SubExt      : array [0..1] of string = ('srt','ass');
+  _ArWords     : array [1..5] of string = ('في','من','على','متى','ال');
+  _ConfigFile  = 'paths.cfg';
+  _ArLangCode  = '.AR';
+
+function ContainsText(const SubStr, Str: string): Boolean;
+begin
+  Result := Pos(UpperCase(SubStr), UpperCase(Str)) > 0;
+end;
+
+function IsWordInSubtileText(const ASubText: string): Boolean;
+var
+  i : integer;
+begin
+  Result := False;
+  for I := Low(_ArWords) to High(_ArWords) Do
+  if (Pos(_ArWords[i], ASubText) > 0 ) then begin
+     Result := True;
+     Break;
+  end;
+end;
+
+procedure SubFileToUnicode(const AFilename: string);
+var
+  SL: TStringList;
+begin
+  SL := TStringList.Create;
+  try
+  	sl.LoadFromFile(AFilename, TEncoding.GetEncoding(1256));
+    if NOT IsWordInSubtileText(sl.Text) then
+    	sl.LoadFromFile(AFilename, TEncoding.Unicode);
+    if NOT IsWordInSubtileText(sl.Text) then
+    	sl.LoadFromFile(AFilename, TEncoding.UTF8);
+    DeleteFile(AFilename);
+    if ContainsText(_ArLangCode+ExtractFileExt(AFilename), AFilename) then
+      SL.SaveToFile(AFilename, TEncoding.Unicode)
+    else
+      SL.SaveToFile(ChangeFileExt(AFilename, _ArLangCode+ExtractFileExt(AFilename)), TEncoding.Unicode)
+  finally
+    SL.Free;
+  end;
+end;
+
+
+var
+  SLSrtFiles     : TStringList;
+  SLPaths        : TStringList;
+  SLTemp         : TStringList;
+  sSubExt        : string = '';
+  I              : Integer;
+  sConfigFile    : string;
+begin
+   sConfigFile := IncludeTrailingBackslash(ExtractFilePath(ParamStr(0))) + _ConfigFile;
+
+   if not FileExists(sConfigFile) then Exit;
+
+   for I := Low(_SubExt) to High(_SubExt) do
+       sSubExt := sSubExt + ';*.' + _SubExt[I];
+   sSubExt := Copy(sSubExt, 2, Length(sSubExt));
+
+   SLSrtFiles := TStringList.Create;
+   try
+     SLTemp := TStringList.Create;
+     try
+       SLPaths := TStringList.Create;
+       try
+         SLPaths.LoadFromFile(sConfigFile);
+         for I := 0 to SLPaths.Count-1 do
+           if DirectoryExists(SLPaths[I]) then begin
+             SLTemp := FindAllFiles(SLPaths[I], sSubExt, True);
+             SLSrtFiles.AddStrings(SLTemp);
+           end;
+       finally
+         SLPaths.Free;
+       end;
+     finally
+       SLTemp.Free;
+     end;
+
+     for I := 0 to SLSrtFiles.Count-1 do begin
+       // Resotre
+       if ParamCount > 0 then begin
+          if ContainsText('R', ParamStr(1)) then begin
+            DeleteFile(SLSrtFiles[I]);
+            RenameFile(SLSrtFiles[I]+_BackupExt, SLSrtFiles[I]);
+          end;
+       end
+       // Fixing
+       else begin
+         if NOT FileExists(SLSrtFiles[I]+_BackupExt) then begin
+           CopyFile(SLSrtFiles[I], SLSrtFiles[I]+_BackupExt, []);
+           SubFileToUnicode(SLSrtFiles[I]);
+         end;
+       end;
+
+     end;
+   finally
+     SLSrtFiles.Free;;
+   end;
+end.
+
+
